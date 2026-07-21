@@ -355,9 +355,7 @@ AuthenticationRcl/
 │   ├── OTP/                       # مدل‌های OTP
 │   ├── TwoFactor/                 # مدل‌های 2FA
 │   └── Base/                      # کلاس‌های پایه
-│       ├── ResponseBase.cs
-│       ├── SuccessResponse.cs
-│       └── ErrorResponse.cs
+│       └── ResponseBase.cs
 ├── Options/
 │   ├── AuthOptions.cs             # تنظیمات احراز هویت
 │   ├── JwtOptions.cs              # تنظیمات JWT
