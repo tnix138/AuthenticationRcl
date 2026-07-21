@@ -1,29 +1,32 @@
 # 🔐 AuthenticationRcl
 
-> ماژول احراز هویت پیشرفته برای ASP.NET Core MVC | Authentication Module for ASP.NET Core MVC
+> ماژول احراز هویت پیشرفته برای ASP.NET Core | Advanced Authentication Module for ASP.NET Core
 
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-35%2B-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-71%2B-brightgreen)](tests/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
 ---
 
 ## 📖 معرفی | Introduction
 
-**AuthenticationRcl** یک ماژول مستقل و کامل برای مدیریت احراز هویت در پروژه‌های ASP.NET Core MVC است. این ماژول با استفاده از بهترین روش‌های امنیتی، تمام نیازهای احراز هویت را پوشش می‌دهد.
+**AuthenticationRcl** یک ماژول مستقل و کامل برای مدیریت احراز هویت در پروژه‌های ASP.NET Core است. این ماژول با استفاده از بهترین روش‌های امنیتی، تمام نیازهای احراز هویت را پوشش می‌دهد.
 
 **ویژگی‌های کلیدی:**
 
-- ✅ **JWT و Refresh Token** | احراز هویت امن و مقیاس‌پذیر
-- ✅ **BCrypt** | هش کردن رمز عبور با بالاترین سطح امنیت
-- ✅ **Rate Limiting** | محدودیت درخواست برای جلوگیری از حملات Brute Force
-- ✅ **قفل شدن خودکار** | بعد از ۵ تلاش ناموفق، کاربر به مدت ۱۵ دقیقه قفل می‌شود
-- ✅ **بازنشانی رمز عبور** | با توکن و زمان انقضا
-- ✅ **RESTful API** | طراحی کاملاً استاندارد
-- ✅ **Seed Data** | کاربر ادمین و کاربر تست به صورت پیش‌فرض
-- ✅ **تست واحد** | بیش از ۳۵ تست با xUnit و Moq
-- ✅ **کامنت‌گذاری حرفه‌ای** | مستندسازی کامل کد
+| ویژگی | توضیح |
+|-------|-------|
+| ✅ **ثبت‌نام با Username** | ایمیل و شماره موبایل اختیاری |
+| ✅ **ورود دو مرحله‌ای** | Username + Password → OTP |
+| ✅ **۳ روش دریافت کد** | ایمیل، پیامک، Google Authenticator (TOTP) |
+| ✅ **JWT و Refresh Token** | احراز هویت امن و مقیاس‌پذیر |
+| ✅ **BCrypt** | هش کردن رمز عبور با بالاترین سطح امنیت |
+| ✅ **Rate Limiting** | محدودیت درخواست برای جلوگیری از حملات |
+| ✅ **قفل شدن خودکار** | بعد از ۵ تلاش ناموفق، ۱۵ دقیقه قفل |
+| ✅ **مدیریت کاربران** | توسط ادمین |
+| ✅ **بروزرسانی پروفایل** | ایمیل و شماره موبایل |
+| ✅ **تست واحد** | بیش از ۵۰ تست با xUnit و Moq |
 
 ---
 
@@ -32,14 +35,14 @@
 ### 1️⃣ ایجاد پروژه جدید
 
 ```bash
-dotnet new mvc -n MyProject
+dotnet new webapi -n MyProject
 cd MyProject
 ```
 
 ### 2️⃣ افزودن ارجاع به ماژول
 
 ```xml
-<ProjectReference Include="..\Modules\AuthenticationRcl\AuthenticationRcl.csproj" />
+<ProjectReference Include="..\AuthenticationRcl\AuthenticationRcl.csproj" />
 ```
 
 ### 3️⃣ ثبت ماژول در `Program.cs`
@@ -57,6 +60,7 @@ var app = builder.Build();
 // استفاده از Middlewareها
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.Run();
@@ -67,17 +71,27 @@ app.Run();
 ```json
 {
   "ConnectionStrings": {
-    "AuthDb": "Server=localhost;Database=MyApp_Auth;Trusted_Connection=true;MultipleActiveResultSets=true;TrustServerCertificate=true"
+    "AuthDb": "Server=localhost;Database=AuthDb;Trusted_Connection=true;TrustServerCertificate=true"
   },
   "Jwt": {
     "SecretKey": "YourSuperSecretKeyWithMinimum32CharactersLong!",
     "Issuer": "https://localhost:7001",
     "Audience": "https://localhost:7001"
   },
-  "RateLimiting": {
-    "Global": { "PermitLimit": 100, "WindowInMinutes": 1 },
-    "Login": { "PermitLimit": 5, "WindowInMinutes": 1 },
-    "Register": { "PermitLimit": 3, "WindowInMinutes": 5 }
+  "Auth": {
+    "MinimumPasswordLength": 8,
+    "MaxFailedAttempts": 5,
+    "LockoutMinutes": 15,
+    "RefreshTokenExpiryDays": 30,
+    "ResetTokenExpiryHours": 1,
+    "LoginTokenExpiryMinutes": 5,
+    "OTPExpiryMinutes": 5,
+    "BCryptWorkFactor": 12
+  },
+  "OTP": {
+    "Length": 6,
+    "ExpiryMinutes": 5,
+    "MaxAttempts": 3
   }
 }
 ```
@@ -85,38 +99,184 @@ app.Run();
 ### 5️⃣ اعمال Migration
 
 ```bash
-dotnet ef migrations add InitialCreate
-dotnet ef database update
+dotnet ef migrations add InitialCreate --project AuthenticationRcl
+dotnet ef database update --project AuthenticationRcl
 ```
 
 ---
 
 ## 📚 مستندات API | API Documentation
 
-### 🔑 عملیات احراز هویت
+### 🔑 عملیات احراز هویت (Authentication)
 
 | متد | مسیر | توضیح | محدودیت |
 |-----|------|-------|---------|
-| `POST` | `/api/v1/users` | ثبت‌نام کاربر جدید | ۳ درخواست در ۵ دقیقه |
-| `POST` | `/api/v1/auth/login` | ورود کاربر | ۵ درخواست در ۱ دقیقه |
-| `DELETE` | `/api/v1/auth/sessions/{sessionId}` | خروج کاربر | - |
-| `POST` | `/api/v1/auth/refresh-token` | تجدید توکن | ۵ درخواست در ۱ دقیقه |
+| `POST` | `/api/v1/auth/register` | ثبت‌نام کاربر جدید | ۳ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/auth/login/step1` | مرحله ۱: Username + Password | ۵ درخواست در ۱ دقیقه |
+| `POST` | `/api/v1/auth/login/step2` | مرحله ۲: انتخاب روش دریافت کد | ۳ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/auth/login/step3` | مرحله ۳: تایید کد | ۵ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/auth/logout` | خروج کاربر | - |
+| `POST` | `/api/v1/auth/refresh-token` | تجدید توکن | ۱۰ درخواست در ۱ دقیقه |
+| `PUT` | `/api/v1/auth/change-password` | تغییر رمز عبور | ۳ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/auth/forgot-password` | درخواست بازنشانی رمز | ۳ درخواست در ۱۰ دقیقه |
+| `POST` | `/api/v1/auth/reset-password` | بازنشانی رمز با توکن | ۵ درخواست در ۵ دقیقه |
 
-### 👤 مدیریت کاربر
+### 👤 مدیریت کاربر (User Management)
 
-| متد | مسیر | توضیح |
-|-----|------|-------|
-| `GET` | `/api/v1/users/{userId}` | دریافت اطلاعات کاربر |
-| `PUT` | `/api/v1/users/{userId}` | بروزرسانی کاربر |
-| `DELETE` | `/api/v1/users/{userId}` | حذف کاربر |
-| `PUT` | `/api/v1/users/{userId}/password` | تغییر رمز عبور |
+| متد | مسیر | توضیح | دسترسی |
+|-----|------|-------|---------|
+| `GET` | `/api/v1/user/me` | اطلاعات کاربر جاری | کاربر |
+| `GET` | `/api/v1/user/by-username/{username}` | اطلاعات با نام کاربری | کاربر |
+| `GET` | `/api/v1/user/{userId}` | اطلاعات کاربر | ادمین |
+| `PUT` | `/api/v1/user/profile` | بروزرسانی پروفایل | کاربر |
+| `PUT` | `/api/v1/user/{userId}` | بروزرسانی کاربر | ادمین |
+| `DELETE` | `/api/v1/user/{userId}` | حذف کاربر | ادمین |
 
-### 🔐 بازنشانی رمز عبور
+### 📱 OTP و 2FA
 
 | متد | مسیر | توضیح | محدودیت |
 |-----|------|-------|---------|
-| `POST` | `/api/v1/auth/password-reset/request` | درخواست بازنشانی رمز | ۳ درخواست در ۱۰ دقیقه |
-| `POST` | `/api/v1/auth/password-reset` | بازنشانی رمز با توکن | ۵ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/otp/send` | ارسال کد تایید | ۳ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/otp/verify` | تایید کد | ۵ درخواست در ۵ دقیقه |
+| `GET` | `/api/v1/twofactor/status` | وضعیت 2FA | - |
+| `POST` | `/api/v1/twofactor/setup-totp` | تنظیم TOTP | ۲ درخواست در ۱۰ دقیقه |
+| `POST` | `/api/v1/twofactor/verify-totp` | تایید TOTP | ۵ درخواست در ۵ دقیقه |
+| `POST` | `/api/v1/twofactor/disable` | غیرفعال‌سازی 2FA | - |
+
+---
+
+## 📝 مثال درخواست‌ها | Request Examples
+
+### ثبت‌نام
+
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
+
+{
+  "username": "reza",
+  "email": "reza@example.com",
+  "phoneNumber": "09121234567",
+  "password": "Test@123"
+}
+```
+
+**پاسخ:**
+
+```json
+{
+  "success": true,
+  "message": "ثبت نام با موفقیت انجام شد",
+  "data": {
+    "userId": 1,
+    "username": "reza",
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "refreshToken": "abc123...",
+    "expiresIn": 900
+  }
+}
+```
+
+### ورود - مرحله ۱
+
+```http
+POST /api/v1/auth/login/step1
+Content-Type: application/json
+
+{
+  "username": "reza",
+  "password": "Test@123"
+}
+```
+
+**پاسخ:**
+
+```json
+{
+  "success": true,
+  "message": "احراز هویت اولیه انجام شد",
+  "data": {
+    "loginToken": "abc123...",
+    "expiresIn": 300,
+    "requiresTwoFactor": true,
+    "availableMethods": [
+      {
+        "type": "Email",
+        "label": "ایمیل",
+        "isAvailable": true,
+        "maskedDestination": "re***@example.com"
+      },
+      {
+        "type": "SMS",
+        "label": "پیامک",
+        "isAvailable": true,
+        "maskedDestination": "091***567"
+      }
+    ],
+    "userInfo": {
+      "userId": 1,
+      "username": "reza",
+      "hasEmail": true,
+      "hasPhone": true,
+      "hasTOTP": false
+    }
+  }
+}
+```
+
+### ورود - مرحله ۲
+
+```http
+POST /api/v1/auth/login/step2
+Content-Type: application/json
+
+{
+  "loginToken": "abc123...",
+  "method": "Email"
+}
+```
+
+**پاسخ:**
+
+```json
+{
+  "success": true,
+  "message": "کد تایید با موفقیت ارسال شد",
+  "data": {
+    "method": "Email",
+    "expiresIn": 300,
+    "maskedDestination": "re***@example.com"
+  }
+}
+```
+
+### ورود - مرحله ۳
+
+```http
+POST /api/v1/auth/login/step3
+Content-Type: application/json
+
+{
+  "loginToken": "abc123...",
+  "code": "123456"
+}
+```
+
+**پاسخ:**
+
+```json
+{
+  "success": true,
+  "message": "ورود با موفقیت انجام شد",
+  "data": {
+    "userId": 1,
+    "username": "reza",
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "refreshToken": "xyz789...",
+    "expiresIn": 900
+  }
+}
+```
 
 ---
 
@@ -124,12 +284,14 @@ dotnet ef database update
 
 | ویژگی | توضیح |
 |-------|-------|
-| **BCrypt** | هش کردن رمز عبور با Salt خودکار |
+| **BCrypt** | هش کردن رمز عبور با Salt خودکار و Cost Factor ۱۲ |
 | **Rate Limiting** | جلوگیری از حملات Brute Force و DDoS |
-| **Lockout** | قفل شدن کاربر بعد از ۵ تلاش ناموفق |
-| **JWT** | احراز هویت بدون وضعیت (Stateless) |
-| **Refresh Token** | افزایش امنیت با توکن‌های کوتاه‌مدت |
-| **CORS** | پشتیبانی از درخواست‌های Cross-Origin |
+| **Lockout** | قفل شدن کاربر بعد از ۵ تلاش ناموفق به مدت ۱۵ دقیقه |
+| **JWT** | احراز هویت بدون وضعیت با امضای HMAC-SHA256 |
+| **Refresh Token** | چرخش خودکار با انقضای ۳۰ روز |
+| **TOTP** | احراز هویت دو مرحله‌ای با Google Authenticator |
+| **کدهای پشتیبان** | ۱۰ کد یکبارمصرف برای بازیابی 2FA |
+| **Login Token** | توکن موقت ۵ دقیقه‌ای برای ورود دو مرحله‌ای |
 
 ---
 
@@ -139,16 +301,19 @@ dotnet ef database update
 # اجرای تست‌ها
 dotnet test
 
-# اجرای تست‌ها با جزئیات
-dotnet test --verbosity detailed
+# اجرای تست‌ها با پوشش کد
+dotnet test --collect:"XPlat Code Coverage"
+
+# اجرای تست‌های خاص
+dotnet test --filter "Category=Registration"
 ```
 
-**تعداد تست‌ها:** ۳۵+ تست واحد
+**تعداد تست‌ها:** ۵۰+ تست واحد
 
 | کلاس تست | تعداد تست |
 |----------|-----------|
-| `AuthServiceTests` | ۲۰ تست |
-| `UsersControllerTests` | ۱۵ تست |
+| `AuthServiceTests` | ۳۰+ تست |
+| `ControllerTests` | ۲۰+ تست |
 
 ---
 
@@ -157,20 +322,49 @@ dotnet test --verbosity detailed
 ```
 AuthenticationRcl/
 ├── Controllers/Api/
-│   └── UsersController.cs          # RESTful API
-├── Data/
-│   └── SeedData.cs                 # داده‌های اولیه
+│   ├── AuthController.cs          # کنترلر احراز هویت
+│   ├── UserController.cs          # کنترلر مدیریت کاربران
+│   ├── OTPController.cs           # کنترلر OTP
+│   └── TwoFactorController.cs     # کنترلر 2FA
 ├── Models/
-│   ├── User.cs                     # مدل کاربر
-│   └── AppDbContext.cs             # DbContext
+│   ├── User.cs                    # مدل کاربر
+│   ├── UserOTP.cs                 # مدل کدهای تایید
+│   ├── UserBackupCode.cs          # مدل کدهای پشتیبان
+│   ├── UserDevice.cs              # مدل دستگاه‌ها
+│   └── AppDbContext.cs            # DbContext
 ├── Services/
-│   ├── AuthService.cs              # سرویس احراز هویت
-│   └── TokenService.cs             # سرویس JWT
+│   ├── IAuthService.cs            # اینترفیس سرویس احراز هویت
+│   ├── AuthService.cs             # پیاده‌سازی احراز هویت
+│   ├── ITokenService.cs           # اینترفیس سرویس JWT
+│   ├── TokenService.cs            # پیاده‌سازی JWT
+│   ├── IOTPService.cs             # اینترفیس سرویس OTP
+│   ├── OTPService.cs              # پیاده‌سازی OTP
+│   ├── IEmailProvider.cs          # اینترفیس پروایدر ایمیل
+│   └── ISMSProvider.cs            # اینترفیس پروایدر پیامک
 ├── ViewModels/
-│   ├── ResponseBase.cs             # پاسخ پایه
-│   └── VMLogin.cs                  # ViewModel‌های احراز هویت
-├── ModuleInitializer.cs            # ثبت ماژول
-└── AuthenticationRcl.csproj
+│   ├── Auth/                      # مدل‌های احراز هویت
+│   │   ├── RegisterRequest.cs
+│   │   ├── LoginStep1Request.cs
+│   │   ├── LoginStep1Response.cs
+│   │   ├── LoginStep2Request.cs
+│   │   ├── LoginStep2Response.cs
+│   │   ├── LoginStep3Request.cs
+│   │   ├── LoginStep3Response.cs
+│   │   └── ...
+│   ├── User/                      # مدل‌های کاربر
+│   ├── OTP/                       # مدل‌های OTP
+│   ├── TwoFactor/                 # مدل‌های 2FA
+│   └── Base/                      # کلاس‌های پایه
+│       ├── ResponseBase.cs
+│       ├── SuccessResponse.cs
+│       └── ErrorResponse.cs
+├── Options/
+│   ├── AuthOptions.cs             # تنظیمات احراز هویت
+│   ├── JwtOptions.cs              # تنظیمات JWT
+│   └── OTPOptions.cs              # تنظیمات OTP
+├── ModuleInitializer.cs           # ثبت ماژول در DI
+├── AuthenticationRcl.csproj       # فایل پروژه
+└── README.md
 ```
 
 ---
@@ -182,9 +376,18 @@ AuthenticationRcl/
 | .NET | 9.0 |
 | Entity Framework Core | 9.0 |
 | BCrypt.Net-Next | 4.0.3 |
+| Otp.NET | 1.4.0 |
 | JWT Bearer | 9.0 |
+| Rate Limiting | 9.0 |
 | xUnit | 2.9.2 |
 | Moq | 4.20.72 |
+
+---
+
+## 📋 پیش‌نیازها | Prerequisites
+
+- [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- [SQL Server](https://www.microsoft.com/en-us/sql-server/sql-server-downloads) (یا هر پایگاه داده پشتیبانی شده توسط EF Core)
 
 ---
 
@@ -206,8 +409,7 @@ AuthenticationRcl/
 
 ## 📞 ارتباط | Contact
 
-- **ایجاد کننده:** [Your Name]
-- **ایمیل:** your.email@example.com
+- **ایجاد کننده:** [Tohid Rajabali]
 - **گیت‌هاب:** [Your GitHub Profile](https://github.com/tnix138)
 
 ---
