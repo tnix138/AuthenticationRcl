@@ -1,603 +1,781 @@
-using AuthenticationRcl.Models;
-using AuthenticationRcl.Services;
-using AuthenticationRcl.ViewModels;
+﻿using AuthenticationRcl.ViewModels.Auth;
+using AuthenticationRcl.ViewModels.User;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Moq;
-using Xunit;
 
 namespace AuthenticationRcl.Tests;
 
-public class AuthServiceTests : IDisposable
+public class AuthServiceTests : TestBase
 {
-    private readonly AppDbContext _context;
-    private readonly AuthService _authService;
-    private readonly ILogger<AuthService> _logger;
-    private readonly Mock<ITokenService> _mockTokenService;
+    #region Register
 
-    public AuthServiceTests()
+    [Fact]
+    public async Task Register_Valid_Success()
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
+        var req = new RegisterRequest
+        {
+            Username = $"user{Guid.NewGuid():N}".Substring(0, 10),
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
+        };
 
-        _context = new AppDbContext(options);
-
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        _logger = loggerFactory.CreateLogger<AuthService>();
-
-        // ساخت Mock برای ITokenService
-        _mockTokenService = new Mock<ITokenService>();
-        _mockTokenService
-            .Setup(x => x.GenerateAccessToken(It.IsAny<User>()))
-            .Returns("fake-access-token");
-        _mockTokenService
-            .Setup(x => x.GenerateRefreshToken())
-            .Returns("fake-refresh-token");
-
-        _authService = new AuthService(_context, _logger, _mockTokenService.Object);
+        var res = await _authService.RegisterAsync(req);
+        Assert.True(res.Success, $"Expected Success but got: {res.Message}");
+        Assert.NotNull(res.AccessToken);
+        Assert.NotNull(res.RefreshToken);
+        Assert.True(res.UserId > 0);
+        Assert.Equal(req.Username, res.Username);
     }
 
     [Fact]
-    public async Task RegisterAsync_Should_Succeed_With_Valid_Data()
+    public async Task Register_DuplicateUsername_Fail()
     {
-        // Arrange
-        var request = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
+        var username = $"user{Guid.NewGuid():N}".Substring(0, 10);
+        var req1 = new RegisterRequest { Username = username, Email = $"test1{Guid.NewGuid():N}@example.com", PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11), Password = "Test@123" };
+        await _authService.RegisterAsync(req1);
 
-        // Act
-        var result = await _authService.RegisterAsync(request);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("ثبت نام با موفقیت انجام شد", result.Message);
-        Assert.True(result.UserId > 0);
-        Assert.NotNull(result.AccessToken);
-        Assert.NotNull(result.RefreshToken);
+        var req2 = new RegisterRequest { Username = username, Email = $"test2{Guid.NewGuid():N}@example.com", PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11), Password = "Test@123" };
+        var res = await _authService.RegisterAsync(req2);
+        Assert.False(res.Success);
+        Assert.Contains("نام کاربری", res.Message);
     }
 
     [Fact]
-    public async Task RegisterAsync_Should_Fail_With_Duplicate_Email()
+    public async Task Register_DuplicateEmail_Fail()
     {
-        // Arrange
-        var request1 = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
+        var email = $"dup{Guid.NewGuid():N}@example.com";
+        var req1 = new RegisterRequest { Username = $"user1{Guid.NewGuid():N}".Substring(0, 10), Email = email, PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11), Password = "Test@123" };
+        await _authService.RegisterAsync(req1);
 
-        var request2 = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09129876543",
-            Password = "12345678"
-        };
-
-        // Act
-        await _authService.RegisterAsync(request1);
-        var result = await _authService.RegisterAsync(request2);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("این ایمیل قبلاً ثبت نام کرده است", result.Message);
+        var req2 = new RegisterRequest { Username = $"user2{Guid.NewGuid():N}".Substring(0, 10), Email = email, PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11), Password = "Test@123" };
+        var res = await _authService.RegisterAsync(req2);
+        Assert.False(res.Success);
+        Assert.Contains("ایمیل", res.Message);
     }
 
     [Fact]
-    public async Task RegisterAsync_Should_Fail_With_Duplicate_Phone()
+    public async Task Register_DuplicatePhone_Fail()
     {
-        // Arrange
-        var request1 = new RegisterRequest
+        var phone = $"0912{Guid.NewGuid():N}".Substring(0, 11);
+        var req1 = new RegisterRequest { Username = $"user1{Guid.NewGuid():N}".Substring(0, 10), Email = $"test1{Guid.NewGuid():N}@example.com", PhoneNumber = phone, Password = "Test@123" };
+        await _authService.RegisterAsync(req1);
+
+        var req2 = new RegisterRequest { Username = $"user2{Guid.NewGuid():N}".Substring(0, 10), Email = $"test2{Guid.NewGuid():N}@example.com", PhoneNumber = phone, Password = "Test@123" };
+        var res = await _authService.RegisterAsync(req2);
+        Assert.False(res.Success);
+        Assert.Contains("موبایل", res.Message);
+    }
+
+    [Theory]
+    [InlineData("123")]
+    [InlineData("")]
+    public async Task Register_ShortPassword_Fail(string pass)
+    {
+        var req = new RegisterRequest
         {
-            Email = "test1@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
+            Username = $"user{Guid.NewGuid():N}".Substring(0, 10),
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = pass
         };
-
-        var request2 = new RegisterRequest
-        {
-            Email = "test2@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        // Act
-        await _authService.RegisterAsync(request1);
-        var result = await _authService.RegisterAsync(request2);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("این شماره موبایل قبلاً ثبت نام کرده است", result.Message);
+        var res = await _authService.RegisterAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("۸ کاراکتر", res.Message);
     }
 
     [Fact]
-    public async Task RegisterAsync_Should_Fail_With_Short_Password()
+    public async Task Register_ShortUsername_Fail()
     {
-        // Arrange
-        var request = new RegisterRequest
+        var req = new RegisterRequest
         {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "123"
+            Username = "ab",
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
         };
-
-        // Act
-        var result = await _authService.RegisterAsync(request);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("رمز عبور باید حداقل ۸ کاراکتر باشد", result.Message);
+        var res = await _authService.RegisterAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("۳ کاراکتر", res.Message);
     }
 
     [Fact]
-    public async Task RegisterAsync_Should_Fail_With_No_Email_Or_Phone()
+    public async Task Register_NoUsername_Fail()
     {
-        // Arrange
-        var request = new RegisterRequest
+        var req = new RegisterRequest
         {
-            Email = null,
-            PhoneNumber = null,
-            Password = "12345678"
+            Username = "",
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
         };
-
-        // Act
-        var result = await _authService.RegisterAsync(request);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("حداقل یکی از ایمیل یا شماره موبایل باید وارد شود", result.Message);
-    }
-
-    [Fact]
-    public async Task LoginAsync_Should_Succeed_With_Valid_Credentials()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var loginRequest = new LoginRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null,
-            Password = "12345678"
-        };
-
-        // Act
-        var result = await _authService.LoginAsync(loginRequest);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("ورود با موفقیت انجام شد", result.Message);
-        Assert.True(result.UserId > 0);
-        Assert.NotNull(result.AccessToken);
-        Assert.NotNull(result.RefreshToken);
-    }
-
-    [Fact]
-    public async Task LoginAsync_Should_Fail_With_Wrong_Password()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var loginRequest = new LoginRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null,
-            Password = "wrongpassword"
-        };
-
-        // Act
-        var result = await _authService.LoginAsync(loginRequest);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Contains("رمز عبور اشتباه است", result.Message);
-    }
-
-    [Fact]
-    public async Task LoginAsync_Should_Fail_With_NonExistent_User()
-    {
-        // Arrange
-        var loginRequest = new LoginRequest
-        {
-            Email = "nonexistent@example.com",
-            PhoneNumber = null,
-            Password = "12345678"
-        };
-
-        // Act
-        var result = await _authService.LoginAsync(loginRequest);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("کاربری با این مشخصات یافت نشد", result.Message);
-    }
-
-    [Fact]
-    public async Task LoginAsync_Should_Accept_PhoneNumber()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var loginRequest = new LoginRequest
-        {
-            Email = null,
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        // Act
-        var result = await _authService.LoginAsync(loginRequest);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("ورود با موفقیت انجام شد", result.Message);
-    }
-
-    [Fact]
-    public async Task LoginAsync_Should_Fail_After_5_Attempts()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var loginRequest = new LoginRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null,
-            Password = "wrongpassword"
-        };
-
-        // Act - 5 بار تلاش ناموفق
-        LoginResponse result = null;
-        for (int i = 0; i < 5; i++)
-        {
-            result = await _authService.LoginAsync(loginRequest);
-        }
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Contains("قفل", result.Message);
-    }
-
-    [Fact]
-    public async Task ChangePasswordAsync_Should_Succeed_With_Valid_Data()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        var registerResult = await _authService.RegisterAsync(registerRequest);
-
-        var request = new ChangePasswordRequest
-        {
-            UserId = registerResult.UserId,
-            CurrentPassword = "12345678",
-            NewPassword = "87654321"
-        };
-
-        // Act
-        var result = await _authService.ChangePasswordAsync(request);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("رمز عبور با موفقیت تغییر کرد", result.Message);
-        Assert.True(result.IsChanged);
-    }
-
-    [Fact]
-    public async Task ChangePasswordAsync_Should_Fail_With_Wrong_CurrentPassword()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        var registerResult = await _authService.RegisterAsync(registerRequest);
-
-        var request = new ChangePasswordRequest
-        {
-            UserId = registerResult.UserId,
-            CurrentPassword = "wrongpassword",
-            NewPassword = "87654321"
-        };
-
-        // Act
-        var result = await _authService.ChangePasswordAsync(request);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("رمز عبور فعلی اشتباه است", result.Message);
-    }
-
-    [Fact]
-    public async Task GetUserInfoAsync_Should_Succeed_With_Valid_UserId()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        var registerResult = await _authService.RegisterAsync(registerRequest);
-
-        // Act
-        var result = await _authService.GetUserInfoAsync(registerResult.UserId);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("test@example.com", result.Email);
-        Assert.Equal("09121234567", result.PhoneNumber);
-        Assert.Equal("User", result.Role);
-        Assert.True(result.IsActive);
-    }
-
-    [Fact]
-    public async Task GetUserInfoAsync_Should_Fail_With_Invalid_UserId()
-    {
-        // Act
-        var result = await _authService.GetUserInfoAsync(999);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("کاربر یافت نشد", result.Message);
-    }
-
-    [Fact]
-    public async Task ForgotPasswordAsync_Should_Succeed_With_Valid_Email()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var request = new ForgotPasswordRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null
-        };
-
-        // Act
-        var result = await _authService.ForgotPasswordAsync(request);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Contains("لینک بازنشانی", result.Message);
-        Assert.True(result.IsSent);
-    }
-
-    [Fact]
-    public async Task ForgotPasswordAsync_Should_Fail_With_Invalid_Email()
-    {
-        // Arrange
-        var request = new ForgotPasswordRequest
-        {
-            Email = "invalid@example.com",
-            PhoneNumber = null
-        };
-
-        // Act
-        var result = await _authService.ForgotPasswordAsync(request);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("کاربری با این مشخصات یافت نشد", result.Message);
-    }
-
-    [Fact]
-    public async Task ResetPasswordAsync_Should_Succeed_With_Valid_Token()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var forgotRequest = new ForgotPasswordRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null
-        };
-
-        var forgotResult = await _authService.ForgotPasswordAsync(forgotRequest);
-        var token = forgotResult.DevMessage?.Replace("Reset token: ", "");
-
-        var request = new ResetPasswordRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null,
-            NewPassword = "87654321",
-            Token = token ?? ""
-        };
-
-        // Act
-        var result = await _authService.ResetPasswordAsync(request);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("رمز عبور با موفقیت بازنشانی شد", result.Message);
-        Assert.True(result.IsReset);
-    }
-
-    [Fact]
-    public async Task ResetPasswordAsync_Should_Fail_With_Invalid_Token()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        await _authService.RegisterAsync(registerRequest);
-
-        var request = new ResetPasswordRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = null,
-            NewPassword = "87654321",
-            Token = "invalid-token"
-        };
-
-        // Act
-        var result = await _authService.ResetPasswordAsync(request);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("توکن نامعتبر است", result.Message);
-    }
-
-    [Fact]
-    public async Task LogoutAsync_Should_Succeed()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        var registerResult = await _authService.RegisterAsync(registerRequest);
-
-        var request = new LogoutRequest
-        {
-            UserId = registerResult.UserId
-        };
-
-        // Act
-        var result = await _authService.LogoutAsync(request);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("خروج با موفقیت انجام شد", result.Message);
-        Assert.True(result.IsLoggedOut);
-    }
-
-    [Fact]
-    public async Task RefreshTokenAsync_Should_Succeed_With_Valid_RefreshToken()
-    {
-        // Arrange
-        var registerRequest = new RegisterRequest
-        {
-            Email = "test@example.com",
-            PhoneNumber = "09121234567",
-            Password = "12345678"
-        };
-
-        var registerResult = await _authService.RegisterAsync(registerRequest);
-
-        var request = new RefreshTokenRequest
-        {
-            RefreshToken = registerResult.RefreshToken ?? ""
-        };
-
-        // Act
-        var result = await _authService.RefreshTokenAsync(request);
-
-        // Assert
-        Assert.True(result.IsSucceded);
-        Assert.Equal("توکن با موفقیت تجدید شد", result.Message);
-        Assert.NotNull(result.AccessToken);
-        Assert.NotNull(result.RefreshToken);
-    }
-
-    [Fact]
-    public async Task RefreshTokenAsync_Should_Fail_With_Invalid_RefreshToken()
-    {
-        // Arrange
-        var request = new RefreshTokenRequest
-        {
-            RefreshToken = "invalid-refresh-token"
-        };
-
-        // Act
-        var result = await _authService.RefreshTokenAsync(request);
-
-        // Assert
-        Assert.False(result.IsSucceded);
-        Assert.Equal("توکن نامعتبر است", result.Message);
-    }
-
-    [Fact]
-    public void HashPassword_Should_Generate_Consistent_Hash()
-    {
-        // Arrange
-        var password = "12345678";
-
-        // Act
-        var hash1 = HashPassword(password);
-        var hash2 = HashPassword(password);
-
-        // Assert
-        Assert.Equal(hash1, hash2);
-        Assert.NotEqual(password, hash1);
-    }
-
-    #region متد کمکی برای تست
-
-    private string HashPassword(string password)
-    {
-        using var sha256 = System.Security.Cryptography.SHA256.Create();
-        var hashedBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
-        return Convert.ToBase64String(hashedBytes);
+        var res = await _authService.RegisterAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("نام کاربری", res.Message);
     }
 
     #endregion
 
-    public void Dispose()
+    #region Login - Step 1
+
+    [Fact]
+    public async Task LoginStep1_Valid_Success()
     {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
+        var user = await CreateUserWithTwoFactorAsync();
+
+        var loginReq = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+
+        var res = await _authService.LoginStep1Async(loginReq);
+        Assert.True(res.Success, $"Expected Success but got: {res.Message}");
+        Assert.NotNull(res.LoginToken);
+        Assert.True(res.ExpiresIn > 0);
+        Assert.NotEmpty(res.AvailableMethods);
     }
+
+    [Fact]
+    public async Task LoginStep1_WrongPassword_Fail()
+    {
+        var username = $"user{Guid.NewGuid():N}".Substring(0, 10);
+        var req = new RegisterRequest
+        {
+            Username = username,
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
+        };
+        await _authService.RegisterAsync(req);
+
+        var loginReq = new LoginStep1Request
+        {
+            Username = username,
+            Password = "wrong"
+        };
+
+        var res = await _authService.LoginStep1Async(loginReq);
+        Assert.False(res.Success);
+        Assert.Contains("اشتباه", res.Message);
+    }
+
+    [Fact]
+    public async Task LoginStep1_NotFound_Fail()
+    {
+        var loginReq = new LoginStep1Request
+        {
+            Username = "notexists",
+            Password = "Test@123"
+        };
+
+        var res = await _authService.LoginStep1Async(loginReq);
+        Assert.False(res.Success);
+        Assert.Contains("اشتباه", res.Message);
+    }
+
+    [Fact]
+    public async Task LoginStep1_LockAfter5Attempts()
+    {
+        var username = $"user{Guid.NewGuid():N}".Substring(0, 10);
+        var req = new RegisterRequest
+        {
+            Username = username,
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
+        };
+        await _authService.RegisterAsync(req);
+
+        var loginReq = new LoginStep1Request
+        {
+            Username = username,
+            Password = "wrong"
+        };
+
+        LoginStep1Response res = null;
+        for (int i = 0; i < 5; i++)
+        {
+            res = await _authService.LoginStep1Async(loginReq);
+        }
+        Assert.False(res.Success);
+        Assert.Contains("قفل", res.Message);
+    }
+
+    [Fact]
+    public async Task LoginStep1_InactiveUser_Fail()
+    {
+        var user = await CreateUserAsync();
+        user.IsActive = false;
+        await _db.SaveChangesAsync();
+
+        var loginReq = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+
+        var res = await _authService.LoginStep1Async(loginReq);
+        Assert.False(res.Success);
+        Assert.Contains("غیرفعال", res.Message);
+    }
+
+    #endregion
+
+    #region Login - Step 2
+
+    [Fact]
+    public async Task LoginStep2_Email_Success()
+    {
+        // ✅ کاربر با ایمیل تایید شده و 2FA فعال
+        var user = await CreateUserAsync(
+            isEmailConfirmed: true,
+            twoFactorEnabled: true,
+            twoFactorMethod: "Email"
+        );
+
+        // Step 1
+        var step1Req = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+        var step1Res = await _authService.LoginStep1Async(step1Req);
+        Assert.True(step1Res.Success, $"Step1 failed: {step1Res.Message}");
+
+        // Step 2
+        var step2Req = new LoginStep2Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Method = "Email"
+        };
+        var step2Res = await _authService.LoginStep2Async(step2Req);
+        Assert.True(step2Res.Success, $"Step2 failed: {step2Res.Message}");
+        Assert.Equal("Email", step2Res.Method);
+        Assert.NotNull(step2Res.MaskedDestination);
+    }
+
+    [Fact]
+    public async Task LoginStep2_SMS_Success()
+    {
+        // ✅ کاربر با شماره تایید شده و 2FA فعال
+        var user = await CreateUserAsync(
+            isPhoneConfirmed: true,
+            twoFactorEnabled: true,
+            twoFactorMethod: "SMS"
+        );
+
+        var step1Req = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+        var step1Res = await _authService.LoginStep1Async(step1Req);
+        Assert.True(step1Res.Success, $"Step1 failed: {step1Res.Message}");
+
+        var step2Req = new LoginStep2Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Method = "SMS"
+        };
+        var step2Res = await _authService.LoginStep2Async(step2Req);
+        Assert.True(step2Res.Success, $"Step2 failed: {step2Res.Message}");
+        Assert.Equal("SMS", step2Res.Method);
+        Assert.NotNull(step2Res.MaskedDestination);
+    }
+    [Fact]
+    public async Task LoginStep2_InvalidToken_Fail()
+    {
+        var step2Req = new LoginStep2Request
+        {
+            LoginToken = "invalid-token",
+            Method = "Email"
+        };
+        var res = await _authService.LoginStep2Async(step2Req);
+        Assert.False(res.Success);
+        Assert.Contains("نامعتبر", res.Message);
+    }
+
+    [Fact]
+    public async Task LoginStep2_InvalidMethod_Fail()
+    {
+        var user = await CreateUserAsync(
+            isEmailConfirmed: true,
+            twoFactorEnabled: true,
+            twoFactorMethod: "Email"
+        );
+
+        var step1Req = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+        var step1Res = await _authService.LoginStep1Async(step1Req);
+        Assert.True(step1Res.Success, $"Step1 failed: {step1Res.Message}");
+
+        var step2Req = new LoginStep2Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Method = "InvalidMethod"
+        };
+        var res = await _authService.LoginStep2Async(step2Req);
+        Assert.False(res.Success);
+        Assert.Contains("معتبر", res.Message);
+    }
+    #endregion
+
+    #region Login - Step 3
+
+    [Fact]
+    public async Task LoginStep3_WithInvalidCode_Fail()
+    {
+        var user = await CreateUserAsync(
+            isEmailConfirmed: true,
+            twoFactorEnabled: true,
+            twoFactorMethod: "Email"
+        );
+
+        var step1Req = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+        var step1Res = await _authService.LoginStep1Async(step1Req);
+        Assert.True(step1Res.Success, $"Step1 failed: {step1Res.Message}");
+
+        var step2Req = new LoginStep2Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Method = "Email"
+        };
+        var step2Res = await _authService.LoginStep2Async(step2Req);
+        Assert.True(step2Res.Success, $"Step2 failed: {step2Res.Message}");
+
+        // کد اشتباه - باید خطا بده
+        var step3Req = new LoginStep3Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Code = "000000",
+            IpAddress = "127.0.0.1"
+        };
+        var step3Res = await _authService.LoginStep3Async(step3Req);
+        Assert.False(step3Res.Success, $"Expected failure but got success with message: {step3Res.Message}");
+        Assert.Contains("کد", step3Res.Message);
+    }
+
+    [Fact]
+    public async Task LoginStep3_WithValidCode_Success()
+    {
+        var user = await CreateUserAsync(
+            isEmailConfirmed: true,
+            twoFactorEnabled: true,
+            twoFactorMethod: "Email"
+        );
+
+        var step1Req = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+        var step1Res = await _authService.LoginStep1Async(step1Req);
+        Assert.True(step1Res.Success, $"Step1 failed: {step1Res.Message}");
+
+        var step2Req = new LoginStep2Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Method = "Email"
+        };
+        var step2Res = await _authService.LoginStep2Async(step2Req);
+        Assert.True(step2Res.Success, $"Step2 failed: {step2Res.Message}");
+
+        // کد صحیح (123456) - باید موفق باشه
+        var step3Req = new LoginStep3Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Code = "123456",
+            IpAddress = "127.0.0.1"
+        };
+        var step3Res = await _authService.LoginStep3Async(step3Req);
+        Assert.True(step3Res.Success, $"Expected success but got: {step3Res.Message}");
+        Assert.NotNull(step3Res.AccessToken);
+        Assert.NotNull(step3Res.RefreshToken);
+        Assert.Equal(user.UserId, step3Res.UserId);
+    }
+
+    [Fact]
+    public async Task LoginStep3_WithInvalidToken_Fail()
+    {
+        var step3Req = new LoginStep3Request
+        {
+            LoginToken = "invalid-token",
+            Code = "123456",
+            IpAddress = "127.0.0.1"
+        };
+        var step3Res = await _authService.LoginStep3Async(step3Req);
+        Assert.False(step3Res.Success);
+        Assert.Contains("نامعتبر", step3Res.Message);
+    }
+
+    [Fact]
+    public async Task LoginStep3_WithExpiredToken_Fail()
+    {
+        var user = await CreateUserAsync(
+            isEmailConfirmed: true,
+            twoFactorEnabled: true,
+            twoFactorMethod: "Email"
+        );
+
+        var step1Req = new LoginStep1Request
+        {
+            Username = user.Username,
+            Password = "Test@123"
+        };
+        var step1Res = await _authService.LoginStep1Async(step1Req);
+        Assert.True(step1Res.Success, $"Step1 failed: {step1Res.Message}");
+
+        // منقضی کردن توکن
+        var dbUser = await _db.Users.FindAsync(user.UserId);
+        dbUser.LoginTokenExpiry = DateTime.UtcNow.AddMinutes(-1);
+        await _db.SaveChangesAsync();
+
+        var step3Req = new LoginStep3Request
+        {
+            LoginToken = step1Res.LoginToken,
+            Code = "123456",
+            IpAddress = "127.0.0.1"
+        };
+        var step3Res = await _authService.LoginStep3Async(step3Req);
+        Assert.False(step3Res.Success);
+        Assert.Contains("منقضی", step3Res.Message);
+    }
+
+    #endregion
+
+    #region ChangePassword
+
+    [Fact]
+    public async Task ChangePassword_Valid_Success()
+    {
+        var user = await CreateUserAsync();
+        var req = new ChangePasswordRequest
+        {
+            UserId = user.UserId,
+            CurrentPassword = "Test@123",
+            NewPassword = "New@1234"
+        };
+        var res = await _authService.ChangePasswordAsync(req);
+        Assert.True(res.Success, $"Expected Success but got: {res.Message}");
+        Assert.True(res.IsChanged);
+    }
+
+    [Fact]
+    public async Task ChangePassword_WrongCurrent_Fail()
+    {
+        var user = await CreateUserAsync();
+        var req = new ChangePasswordRequest
+        {
+            UserId = user.UserId,
+            CurrentPassword = "wrong",
+            NewPassword = "New@123"
+        };
+        var res = await _authService.ChangePasswordAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("فعلی", res.Message);
+    }
+
+    [Fact]
+    public async Task ChangePassword_ShortNew_Fail()
+    {
+        var user = await CreateUserAsync();
+        var req = new ChangePasswordRequest
+        {
+            UserId = user.UserId,
+            CurrentPassword = "Test@123",
+            NewPassword = "123"
+        };
+        var res = await _authService.ChangePasswordAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("۸ کاراکتر", res.Message);
+    }
+
+    #endregion
+
+    #region Forgot & Reset
+
+    [Fact]
+    public async Task ForgotPassword_Valid_Success()
+    {
+        var user = await CreateUserAsync();
+        var req = new ForgotPasswordRequest { Email = user.EmailAddress };
+        var res = await _authService.ForgotPasswordAsync(req);
+        Assert.True(res.Success);
+        Assert.True(res.IsSent);
+    }
+
+    [Fact]
+    public async Task ResetPassword_Valid_Success()
+    {
+        var user = await CreateUserAsync();
+
+        var forgotReq = new ForgotPasswordRequest { Email = user.EmailAddress };
+        var forgotRes = await _authService.ForgotPasswordAsync(forgotReq);
+        Assert.True(forgotRes.Success, $"Forgot failed: {forgotRes.Message}");
+
+        var dbUser = await _db.Users.FirstAsync(x => x.UserId == user.UserId);
+        Assert.NotNull(dbUser.ResetPasswordToken);
+
+        var req = new ResetPasswordRequest
+        {
+            Email = user.EmailAddress,
+            Token = dbUser.ResetPasswordToken,
+            NewPassword = "NewPassword123"  // ✅ حداقل ۸ کاراکتر
+        };
+        var res = await _authService.ResetPasswordAsync(req);
+        Assert.True(res.Success, $"Expected Success but got: {res.Message}");
+        Assert.True(res.IsReset);
+    }
+
+    [Fact]
+    public async Task ResetPassword_InvalidToken_Fail()
+    {
+        var user = await CreateUserAsync();
+        var req = new ResetPasswordRequest
+        {
+            Email = user.EmailAddress,
+            Token = "invalid",
+            NewPassword = "New@123"
+        };
+        var res = await _authService.ResetPasswordAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("توکن", res.Message);
+    }
+
+    [Fact]
+    public async Task ResetPassword_ExpiredToken_Fail()
+    {
+        var user = await CreateUserAsync();
+
+        var forgotReq = new ForgotPasswordRequest { Email = user.EmailAddress };
+        await _authService.ForgotPasswordAsync(forgotReq);
+
+        var dbUser = await _db.Users.FirstAsync(x => x.UserId == user.UserId);
+        dbUser.ResetPasswordTokenExpiry = DateTime.UtcNow.AddMinutes(-1);
+        await _db.SaveChangesAsync();
+
+        var req = new ResetPasswordRequest
+        {
+            Email = user.EmailAddress,
+            Token = dbUser.ResetPasswordToken,
+            NewPassword = "New@123"
+        };
+        var res = await _authService.ResetPasswordAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("منقضی", res.Message);
+    }
+
+    #endregion
+
+    #region RefreshToken
+
+    [Fact]
+    public async Task RefreshToken_Valid_Success()
+    {
+        var req = new RegisterRequest
+        {
+            Username = $"user{Guid.NewGuid():N}".Substring(0, 10),
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
+        };
+        var registerResult = await _authService.RegisterAsync(req);
+        Assert.True(registerResult.Success, "Register failed");
+
+        var refreshReq = new RefreshTokenRequest { RefreshToken = registerResult.RefreshToken };
+        var res = await _authService.RefreshTokenAsync(refreshReq);
+        Assert.True(res.Success, $"RefreshToken failed: {res.Message}");
+        Assert.NotNull(res.AccessToken);
+        Assert.NotNull(res.RefreshToken);
+    }
+
+    [Fact]
+    public async Task RefreshToken_Invalid_Fail()
+    {
+        var req = new RefreshTokenRequest { RefreshToken = "invalid" };
+        var res = await _authService.RefreshTokenAsync(req);
+        Assert.False(res.Success);
+        Assert.Contains("نامعتبر", res.Message);
+    }
+
+    [Fact]
+    public async Task RefreshToken_Expired_Fail()
+    {
+        var req = new RegisterRequest
+        {
+            Username = $"user{Guid.NewGuid():N}".Substring(0, 10),
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
+        };
+        var registerResult = await _authService.RegisterAsync(req);
+
+        var user = await _db.Users.FindAsync(registerResult.UserId);
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddMinutes(-1);
+        await _db.SaveChangesAsync();
+
+        var refreshReq = new RefreshTokenRequest { RefreshToken = registerResult.RefreshToken };
+        var res = await _authService.RefreshTokenAsync(refreshReq);
+        Assert.False(res.Success);
+        Assert.Contains("منقضی", res.Message);
+    }
+
+    #endregion
+
+    #region TwoFactor
+
+    [Fact]
+    public async Task Enable2FA_TOTP_Success()
+    {
+        var user = await CreateUserAsync();
+        var res = await _authService.EnableTwoFactorAsync(user.UserId, "TOTP");
+        Assert.True(res.Success);
+        Assert.NotNull(res.SecretKey);
+        Assert.NotNull(res.BackupCodes);
+    }
+
+    [Fact]
+    public async Task Enable2FA_InvalidMethod_Fail()
+    {
+        var user = await CreateUserAsync();
+        var res = await _authService.EnableTwoFactorAsync(user.UserId, "Invalid");
+        Assert.False(res.Success);
+        Assert.Contains("پشتیبانی", res.Message);
+    }
+
+    [Fact]
+    public async Task Disable2FA_Success()
+    {
+        var user = await CreateUserAsync();
+        await _authService.EnableTwoFactorAsync(user.UserId, "TOTP");
+
+        var res = await _authService.DisableTwoFactorAsync(user.UserId);
+        Assert.True(res.Success);
+        Assert.Contains("غیرفعال", res.Message);
+    }
+
+    [Fact]
+    public async Task Get2FAStatus_Success()
+    {
+        var user = await CreateUserAsync();
+        var res = await _authService.GetTwoFactorStatusAsync(user.UserId);
+        Assert.True(res.Success);
+        Assert.False(res.IsEnabled);
+    }
+
+    [Fact]
+    public async Task Get2FAStatus_Enabled_AfterSetup()
+    {
+        var user = await CreateUserAsync();
+        await _authService.EnableTwoFactorAsync(user.UserId, "TOTP");
+
+        var res = await _authService.GetTwoFactorStatusAsync(user.UserId);
+        Assert.True(res.Success);
+        Assert.True(res.IsEnabled);
+    }
+
+    #endregion
+
+    #region UserInfo
+
+    [Fact]
+    public async Task GetUserInfo_Valid_Success()
+    {
+        var user = await CreateUserAsync();
+        var res = await _authService.GetUserInfoAsync(user.UserId);
+        Assert.True(res.Success);
+        Assert.Equal(user.Username, res.Username);
+        Assert.Equal(user.EmailAddress, res.Email);
+        Assert.Equal(user.PhoneNumber, res.PhoneNumber);
+    }
+
+    [Fact]
+    public async Task GetUserInfo_Invalid_Fail()
+    {
+        var res = await _authService.GetUserInfoAsync(99999);
+        Assert.False(res.Success);
+        Assert.Contains("یافت نشد", res.Message);
+    }
+
+    #endregion
+
+    #region Logout
+
+    [Fact]
+    public async Task Logout_Success()
+    {
+        var user = await CreateUserAsync();
+        var req = new LogoutRequest { UserId = user.UserId };
+        var res = await _authService.LogoutAsync(req);
+        Assert.True(res.Success);
+        Assert.True(res.IsLoggedOut);
+    }
+
+    [Fact]
+    public async Task Logout_ClearsRefreshToken()
+    {
+        var req = new RegisterRequest
+        {
+            Username = $"user{Guid.NewGuid():N}".Substring(0, 10),
+            Email = $"test{Guid.NewGuid():N}@example.com",
+            PhoneNumber = $"0912{Guid.NewGuid():N}".Substring(0, 11),
+            Password = "Test@123"
+        };
+        var registerResult = await _authService.RegisterAsync(req);
+
+        var user = await _db.Users.FindAsync(registerResult.UserId);
+        Assert.NotNull(user.RefreshToken);
+
+        var logoutReq = new LogoutRequest { UserId = user.UserId };
+        await _authService.LogoutAsync(logoutReq);
+
+        var dbUser = await _db.Users.FindAsync(user.UserId);
+        Assert.Null(dbUser.RefreshToken);
+        Assert.Null(dbUser.RefreshTokenExpiryTime);
+    }
+
+    #endregion
+
+    #region UpdateProfile
+
+    [Fact]
+    public async Task UpdateProfile_Email_Success()
+    {
+        var user = await CreateUserAsync();
+        var newEmail = $"new{Guid.NewGuid():N}@example.com";
+        var req = new UpdateProfileRequest
+        {
+            Email = newEmail,
+            PhoneNumber = null
+        };
+        var res = await _authService.UpdateProfileAsync(user.UserId, req);
+        Assert.True(res.Success);
+        Assert.Equal(newEmail, res.Email);
+        Assert.False(res.IsEmailConfirmed);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_Phone_Success()
+    {
+        var user = await CreateUserAsync();
+        var newPhone = $"0912{Guid.NewGuid():N}".Substring(0, 11);
+        var req = new UpdateProfileRequest
+        {
+            Email = null,
+            PhoneNumber = newPhone
+        };
+        var res = await _authService.UpdateProfileAsync(user.UserId, req);
+        Assert.True(res.Success);
+        Assert.Equal(newPhone, res.PhoneNumber);
+        Assert.False(res.IsPhoneConfirmed);
+    }
+
+    #endregion
 }

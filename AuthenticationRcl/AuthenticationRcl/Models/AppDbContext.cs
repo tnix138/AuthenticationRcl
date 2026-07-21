@@ -2,27 +2,14 @@
 
 namespace AuthenticationRcl.Models;
 
-/// <summary>
-/// کلاس Context اصلی برای اتصال به دیتابیس
-/// </summary>
 public class AppDbContext : DbContext
 {
-    #region سازنده
-
-    public AppDbContext(DbContextOptions<AppDbContext> options)
-        : base(options)
-    {
-    }
-
-    #endregion
-
-    #region DbSet
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<User> Users { get; set; }
-
-    #endregion
-
-    #region پیکربندی مدل
+    public DbSet<UserOTP> UserOTPs { get; set; }
+    public DbSet<UserDevice> UserDevices { get; set; }
+    public DbSet<UserBackupCode> UserBackupCodes { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,44 +17,85 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<User>(entity =>
         {
-            // کلید اصلی
             entity.HasKey(e => e.UserId);
-            entity.Property(e => e.UserId).UseIdentityColumn(1, 1);
+            entity.Property(e => e.UserId).UseIdentityColumn();
 
-            // فیلدهای اصلی
-            entity.Property(e => e.EmailAddress).HasMaxLength(256);
-            entity.Property(e => e.PhoneNumber).HasMaxLength(20);
-            entity.Property(e => e.Password).HasMaxLength(255).IsRequired();
+            // ایندکس یکتا برای Username
+            entity.HasIndex(e => e.Username).IsUnique().HasDatabaseName("IX_Users_Username");
+
+            // ایندکس یکتا برای Email (اگر خالی نباشد)
+            entity.HasIndex(e => e.EmailAddress).IsUnique().HasDatabaseName("IX_Users_Email").HasFilter("[EmailAddress] IS NOT NULL");
+
+            // ایندکس یکتا برای PhoneNumber (اگر خالی نباشد)
+            entity.HasIndex(e => e.PhoneNumber).IsUnique().HasDatabaseName("IX_Users_Phone").HasFilter("[PhoneNumber] IS NOT NULL");
+
+            entity.Property(e => e.Password).IsRequired().HasMaxLength(255);
             entity.Property(e => e.Role).HasMaxLength(50).HasDefaultValue("User");
-
-            // فیلدهای امنیتی
-            entity.Property(e => e.FailedLoginAttempts).HasDefaultValue(0);
-            entity.Property(e => e.LockoutEndTime).IsRequired(false);
-            entity.Property(e => e.LastLoginAttempt).IsRequired(false);
-
-            // فیلدهای Refresh Token
-            entity.Property(e => e.RefreshToken).HasMaxLength(255).IsRequired(false);
-            entity.Property(e => e.RefreshTokenExpiryTime).IsRequired(false);
-
-            // فیلدهای فراموشی رمز
-            entity.Property(e => e.ResetPasswordToken).HasMaxLength(255).IsRequired(false);
-            entity.Property(e => e.ResetPasswordTokenExpiry).IsRequired(false);
-
-            // فیلدهای تاریخی
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
-            entity.Property(e => e.UpdatedAt).IsRequired(false);
-            entity.Property(e => e.LastLoginAt).IsRequired(false);
-            entity.Property(e => e.LastLoginIp).HasMaxLength(50).IsRequired(false);
 
-            // ایندکس‌ها
-            entity.HasIndex(e => e.EmailAddress).IsUnique()
-                .HasDatabaseName("IX_Users_EmailAddress");
-            entity.HasIndex(e => e.PhoneNumber).IsUnique()
-                .HasDatabaseName("IX_Users_PhoneNumber");
-            entity.HasIndex(e => e.ResetPasswordToken)
-                .HasDatabaseName("IX_Users_ResetPasswordToken");
+            entity.HasMany(e => e.OTPs)
+                  .WithOne(e => e.User)
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
-    }
 
-    #endregion
+        modelBuilder.Entity<UserOTP>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).UseIdentityColumn();
+
+            entity.HasIndex(e => e.UserId).HasDatabaseName("IX_UserOTPs_UserId");
+            entity.HasIndex(e => e.Code).HasDatabaseName("IX_UserOTPs_Code");
+        });
+
+        modelBuilder.Entity<UserDevice>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).UseIdentityColumn();
+
+            entity.HasIndex(e => new { e.UserId, e.DeviceId }).IsUnique()
+                  .HasDatabaseName("IX_UserDevices_UserId_DeviceId");
+        });
+
+        modelBuilder.Entity<UserBackupCode>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).UseIdentityColumn();
+
+            entity.HasIndex(e => e.UserId).HasDatabaseName("IX_UserBackupCodes_UserId");
+        });
+
+        // Seed Data
+        var adminPassword = BCrypt.Net.BCrypt.HashPassword("Admin@123");
+        var testPassword = BCrypt.Net.BCrypt.HashPassword("Test@123");
+
+        modelBuilder.Entity<User>().HasData(
+            new User
+            {
+                UserId = 1,
+                Username = "admin",
+                EmailAddress = "admin@example.com",
+                PhoneNumber = "09123456789",
+                Password = adminPassword,
+                Role = "Admin",
+                IsActive = true,
+                IsEmailConfirmed = true,
+                IsPhoneConfirmed = true,
+                CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new User
+            {
+                UserId = 2,
+                Username = "test",
+                EmailAddress = "test@example.com",
+                PhoneNumber = "09123456788",
+                Password = testPassword,
+                Role = "User",
+                IsActive = true,
+                IsEmailConfirmed = true,
+                IsPhoneConfirmed = true,
+                CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            }
+        );
+    }
 }

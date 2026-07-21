@@ -1,115 +1,73 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AuthenticationRcl.Models;
 
-/// <summary>
-/// موجودیت کاربر اصلی سیستم
-/// </summary>
 public class User
 {
-    #region Properties
-
-    /// <summary>
-    /// شناسه یکتای کاربر - کلید اصلی
-    /// </summary>
     [Key]
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public int UserId { get; set; }
 
-    /// <summary>
-    /// آدرس ایمیل کاربر - یکتا
-    /// </summary>
-    public string? EmailAddress { get; set; }
+    [MaxLength(50)]
+    [Required]
+    public string Username { get; set; } = string.Empty;      // نام کاربری یکتا
 
-    /// <summary>
-    /// شماره موبایل کاربر - یکتا
-    /// </summary>
-    public string? PhoneNumber { get; set; }
+    [MaxLength(256)]
+    public string? EmailAddress { get; set; }                 // ایمیل کاربر
 
-    /// <summary>
-    /// رمز عبور کاربر - به صورت هش شده در دیتابیس ذخیره می‌شود
-    /// </summary>
-    public required string Password { get; set; }
+    [MaxLength(20)]
+    public string? PhoneNumber { get; set; }                  // شماره موبایل کاربر
 
-    /// <summary>
-    /// نقش کاربر در سیستم
-    /// </summary>
-    public string Role { get; set; } = "User";
+    public bool IsEmailConfirmed { get; set; } = false;       // وضعیت تایید ایمیل
 
-    /// <summary>
-    /// وضعیت فعال بودن حساب کاربری
-    /// </summary>
-    public bool IsActive { get; set; } = true;
+    public bool IsPhoneConfirmed { get; set; } = false;       // وضعیت تایید شماره موبایل
 
-    #endregion
+    [MaxLength(255)]
+    [Required]
+    public string Password { get; set; } = string.Empty;      // رمز عبور هش شده
 
-    #region Security Fields
+    [MaxLength(50)]
+    public string Role { get; set; } = "User";                // نقش کاربر در سیستم
 
-    /// <summary>
-    /// تعداد تلاش‌های ناموفق برای ورود
-    /// </summary>
-    public int FailedLoginAttempts { get; set; } = 0;
+    public bool IsActive { get; set; } = true;                // وضعیت فعال بودن حساب
 
-    /// <summary>
-    /// زمان پایان قفل بودن حساب کاربری
-    /// </summary>
-    public DateTime? LockoutEndTime { get; set; }
+    public bool TwoFactorEnabled { get; set; } = false;       // فعال بودن احراز هویت دو مرحله ای
 
-    /// <summary>
-    /// زمان آخرین تلاش برای ورود (موفق یا ناموفق)
-    /// </summary>
-    public DateTime? LastLoginAttempt { get; set; }
+    public string? TwoFactorSecret { get; set; }              // کلید مخفی TOTP
 
-    #endregion
+    public string? TwoFactorMethod { get; set; }              // روش احراز دو مرحله ای
 
-    #region Refresh Token Fields
+    public string? LoginToken { get; set; }                   // توکن موقت ورود
 
-    /// <summary>
-    /// توکن بازنشانی (Refresh Token)
-    /// </summary>
-    public string? RefreshToken { get; set; }
+    public DateTime? LoginTokenExpiry { get; set; }           // زمان انقضای توکن موقت
 
-    /// <summary>
-    /// زمان انقضای توکن بازنشانی
-    /// </summary>
-    public DateTime? RefreshTokenExpiryTime { get; set; }
+    public int FailedLoginAttempts { get; set; } = 0;         // تعداد تلاش های ناموفق
 
-    #endregion
+    public DateTime? LockoutEndTime { get; set; }             // زمان پایان قفل بودن حساب
 
-    #region Password Reset Fields
+    public DateTime? LastLoginAttempt { get; set; }           // زمان آخرین تلاش برای ورود
 
-    /// <summary>
-    /// توکن بازنشانی رمز عبور
-    /// </summary>
-    public string? ResetPasswordToken { get; set; }
+    public string? RefreshToken { get; set; }                 // توکن بازنشانی
 
-    /// <summary>
-    /// زمان انقضای توکن بازنشانی رمز عبور
-    /// </summary>
-    public DateTime? ResetPasswordTokenExpiry { get; set; }
+    public DateTime? RefreshTokenExpiryTime { get; set; }     // زمان انقضای توکن بازنشانی
 
-    #endregion
+    public string? ResetPasswordToken { get; set; }           // توکن بازنشانی رمز عبور
 
-    #region Audit Fields
+    public DateTime? ResetPasswordTokenExpiry { get; set; }   // زمان انقضای توکن بازنشانی رمز
 
-    /// <summary>
-    /// تاریخ ایجاد کاربر
-    /// </summary>
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow; // تاریخ ایجاد
 
-    /// <summary>
-    /// تاریخ آخرین بروزرسانی اطلاعات کاربر
-    /// </summary>
-    public DateTime? UpdatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }                  // تاریخ آخرین بروزرسانی
 
-    /// <summary>
-    /// تاریخ آخرین ورود موفق کاربر
-    /// </summary>
-    public DateTime? LastLoginAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }                // تاریخ آخرین ورود موفق
 
-    /// <summary>
-    /// آی‌پی آخرین ورود موفق کاربر
-    /// </summary>
-    public string? LastLoginIp { get; set; }
+    public string? LastLoginIp { get; set; }                  // آی پی آخرین ورود
 
-    #endregion
+    // روابط
+    public ICollection<UserOTP> OTPs { get; set; } = new List<UserOTP>();              // لیست کدهای تایید
+
+    public ICollection<UserBackupCode> BackupCodes { get; set; } = new List<UserBackupCode>(); // لیست کدهای پشتیبان
+
+    public ICollection<UserDevice> Devices { get; set; } = new List<UserDevice>();     // لیست دستگاه‌ها
 }
